@@ -89,6 +89,10 @@ typedef struct
 	SOCKET ctrl_socket;
 	SOCKET data_socket;
 
+	// Preserve the most recent FTP reply for error reporting.
+	int last_response_code;
+	char last_response[FTP_MAX_LINE];
+
 	char *name;             //'ftp1', NULL means free item
 	int envIndex;           //position if this item in FTPEnv array
 
@@ -382,11 +386,28 @@ static int ftp_readline(SOCKET socket, char *buf, int len)
 	return i;
 }
 
+// Store the latest FTP reply without its CRLF line ending.
+static void ftp_store_response(ftp_env* env, int code, const char *response)
+{
+	size_t len = strcspn(response, "\r\n");
+
+	if(len >= sizeof(env->last_response))
+		len = sizeof(env->last_response) - 1;
+
+	memcpy(env->last_response, response, len);
+	env->last_response[len] = 0;
+	env->last_response_code = code;
+}
+
 static int ftp_get_response(ftp_env* env)
 {
 	char buf[FTP_MAX_LINE], *b;
 	int i, res = 0;
 	int multiline = 0;
+
+	// Clear any stale reply before waiting for a new server response.
+	env->last_response_code = 0;
+	env->last_response[0] = 0;
 
 	i = ftp_readline(env->ctrl_socket, buf, FTP_MAX_LINE);
 	if(i < 0)
@@ -396,11 +417,14 @@ static int ftp_get_response(ftp_env* env)
 	}
 
 	NET_PRINTF("FTP response: %s\n", buf );
+	ftp_store_response(env, 0, buf);
 
 	if(buf[3] == '-')
 	{
 		buf[3] = 0;
 		multiline = strtoul(buf, &b, 0);
+		buf[3] = '-';
+
 		if(b != buf + 3)
 		{
 			NET_PRINTF("FTP response: bad response\n", 0 );
@@ -417,10 +441,14 @@ static int ftp_get_response(ftp_env* env)
 				return i;
 			}
 
+			NET_PRINTF("FTP response: %s\n", buf );
+			ftp_store_response(env, 0, buf);
+
 			if(buf[3] == ' ')
 			{
 				buf[3] = 0;
 				res = strtoul(buf, &b, 0);
+				buf[3] = ' ';
 			}
 		} while(res != multiline);
 	}
@@ -428,12 +456,16 @@ static int ftp_get_response(ftp_env* env)
 	{
 		buf[3] = 0;
 		res = strtoul(buf, &b, 0);
+		buf[3] = ' ';
+
 		if(b != buf + 3)
 		{
 			NET_PRINTF("FTP response: bad response\n", 0 );
 			return -1;
 		}
 	}
+
+	env->last_response_code = res;
 
 	return res;
 }
@@ -635,7 +667,16 @@ static int ftp_execute(ftp_env* env, char *cmd, int res, int reconnect)
 		NET_PRINTF(" -> got res = %d\n", r);
 		if(r != res)
 		{
-			NET_PRINTF( "FTP_EXECUTE: COMMAND '%s' FAILED\n", buf );
+			// Include the server's last reply in debug output when available.
+			if(env->last_response[0] != 0)
+			{
+				NET_PRINTF("FTP_EXECUTE: COMMAND '%s' FAILED (%d: %s)\n",
+					cmd, env->last_response_code, env->last_response);
+			}
+			else
+			{
+				NET_PRINTF("FTP_EXECUTE: COMMAND '%s' FAILED\n", cmd);
+			}
 
 			if((reconnect) && ((r < 0)||(r == 421)))
 			{
@@ -1191,6 +1232,9 @@ static bool FTP_Connect(ftp_env* env, const char* name, const char* user, const 
 	env->password = strdup(password);
 	env->port = (unsigned short) port;
 	env->ftp_passive = ftp_passive;
+
+	env->last_response_code = 0;
+	env->last_response[0] = 0;
 
 	env->dir_cache_list = NULL;
 
