@@ -329,29 +329,60 @@ static int SocketRecv(SOCKET theSocket, char* buf, size_t count, bool exitonempt
 	return received;
 }
 
-static int ftp_getIP(char *buf, unsigned *ip, unsigned short *port)
+static int ftp_getIP(const char *buf, unsigned *ip, unsigned short *port)
 {
-	char *b;
+	const char *p;
+	char *end;
+	unsigned long value;
+	unsigned octets[6];
+	unsigned short host_port;
 	int i;
 
-	*ip = *port = 0;
+	*ip = 0;
+	*port = 0;
 
-	buf = strchr(buf,'(') + 1;
-	if(!buf)
+	// PASV replies encode the IPv4 address and port as six decimal bytes.
+	p = strchr(buf, '(');
+	if(p == NULL)
 		return -1;
-	for(i = 0; i<4; i++){
-		b = buf;
-		*ip = (*ip << 8) + (strtoul(b, &b, 0) );
-		buf = strchr(buf, ',') + 1;
+
+	p++;
+
+	for(i = 0; i < 6; i++)
+	{
+		// Require each field to contain a decimal value that fits in one byte.
+		if(*p < '0' || *p > '9')
+			return -1;
+
+		errno = 0;
+		value = strtoul(p, &end, 10);
+		if(errno == ERANGE || end == p || value > 255)
+			return -1;
+
+		octets[i] = value;
+
+		if(i < 5)
+		{
+			if(*end != ',')
+				return -1;
+
+			p = end + 1;
+		}
+		else if(*end != ')')
+		{
+			return -1;
+		}
 	}
 
-	*ip = htonl(*ip);
+	host_port = (unsigned short)((octets[4] << 8) | octets[5]);
+	if(host_port == 0)
+		return -1;
 
-	b = buf;
-	*port = (unsigned short)strtoul(b, &b, 0) << 8;
-	buf = strchr(buf, ',') + 1;
-	b = buf;
-	*port = htons(*port + (unsigned short)strtoul(b, &b, 0));
+	*ip = htonl((octets[0] << 24) |
+		(octets[1] << 16) |
+		(octets[2] << 8) |
+		octets[3]);
+	*port = htons(host_port);
 
 	return 0;
 }
@@ -933,12 +964,9 @@ execute_open_actv_retry:
 
 	return 0;
 }
-
 static int ftp_execute_open_pasv(ftp_env* env, char *cmd, char *type, off_t offset, SOCKET *data_sock)
 {
-	int l;
 	char buf[FTP_MAX_LINE];
-	char *b;
 	unsigned ip;
 	unsigned short port;
 	int res;
@@ -947,14 +975,16 @@ static int ftp_execute_open_pasv(ftp_env* env, char *cmd, char *type, off_t offs
 
 	if( (env->data_socket == INVALID_SOCKET) || (offset != last_off) || (strcmp(last_cmd, cmd)) )
 	{
+		// Clear the output socket before attempting a new passive connection.
+		*data_sock = INVALID_SOCKET;
+
 		ftp_close_data(env);
 		t1=ticks_to_millisecs(gettime());
 
-execute_open_retry:
+execute_open_pasv_retry:
 
 		if( (res = ftp_execute(env, "PASV", 0, 1)) < 0)
 		{
-			//PASV command failed!
 			if(res == -EAGAIN)
 			{
 				t2 = ticks_to_millisecs(gettime());
@@ -965,16 +995,16 @@ execute_open_retry:
 				}
 				else
 				{
-					goto execute_open_retry;
+					goto execute_open_pasv_retry;
 				}
 			}
 
 			return res;
 		}
 
-		if((res = ftp_readline(env->ctrl_socket, buf, FTP_MAX_LINE)) < 0)
+		res = ftp_readline(env->ctrl_socket, buf, FTP_MAX_LINE);
+		if(res < 0)
 		{
-			//No response!
 			t2 = ticks_to_millisecs(gettime());
 
 			if ( t2 - t1 > NET_TIMEOUT)
@@ -983,35 +1013,26 @@ execute_open_retry:
 			}
 			else
 			{
-				goto execute_open_retry;
+				goto execute_open_pasv_retry;
 			}
 		}
 
-		b = buf;
-
-		if((l = strtoul(b, &b, 0)) != 227)
+		// PASV must return a 227 reply containing the passive data endpoint.
+		if(res < 3 ||
+			buf[0] != '2' ||
+			buf[1] != '2' ||
+			buf[2] != '7')
 		{
-			//"PASV command failed!
 			return -1;
 		}
 
-		ftp_getIP(buf, &ip, &port);
-
-/*
-		DEBUG(" ip,port: %u.%u.%u.%u:%u\n",
-			ip & 0xff,
-			(ip >> 8) & 0xff,
-			(ip >> 16) & 0xff,
-			(ip >> 24) & 0xff,
-			ntohs(port));
-*/
+		if(ftp_getIP(buf, &ip, &port) < 0)
+			return -1;
 
 		sprintf(buf, "TYPE %s", type);
 
 		if((res = ftp_execute(env, buf, 200, 1)) < 0)
 		{
-			//Could not set transmission type!
-
 			if(res == -EAGAIN)
 			{
 				t2 = ticks_to_millisecs(gettime());
@@ -1022,11 +1043,11 @@ execute_open_retry:
 				}
 				else
 				{
-					goto execute_open_retry;
+					goto execute_open_pasv_retry;
 				}
 			}
 
-			return -1;
+			return res;
 		}
 
 		if( offset !=0 )
@@ -1035,7 +1056,6 @@ execute_open_retry:
 			NET_PRINTF("REST=%s\n",buf);
 			if((res = ftp_execute(env, buf, 350, 1)) < 0)
 			{
-				//Could not set transmission offset!
 				if(res == -EAGAIN)
 				{
 					t2 = ticks_to_millisecs(gettime());
@@ -1046,17 +1066,16 @@ execute_open_retry:
 					}
 					else
 					{
-						goto execute_open_retry;
+						goto execute_open_pasv_retry;
 					}
 				}
 
-				return -1;
+				return res;
 			}
 		}
 
 		if((res = ftp_execute(env, cmd, 0, 1)) < 0)
 		{
-			//Could not execute cmd!
 			if(res == -EAGAIN)
 			{
 				t2 = ticks_to_millisecs(gettime());
@@ -1067,13 +1086,12 @@ execute_open_retry:
 				}
 				else
 				{
-					goto execute_open_retry;
+					goto execute_open_pasv_retry;
 				}
 			}
 
-			return -1;
+			return res;
 		}
-
 
 		NET_PRINTF(" ip,port: %u.%u.%u.%u:%u\n",
 			(ntohl(ip) >> 24) & 0xff,
@@ -1082,30 +1100,33 @@ execute_open_retry:
 			ntohl(ip) & 0xff,
 			ntohs(port));
 
+		// Initialize the address structure before filling the passive endpoint.
+		memset(&server_addr, 0, sizeof(server_addr));
 		server_addr.sin_family = AF_INET;
 		server_addr.sin_port = port;
 		server_addr.sin_addr.s_addr = ip;
 
 		*data_sock = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-		if(*data_sock==INVALID_SOCKET)
+		if(*data_sock == INVALID_SOCKET)
 		{
 			return -1;
 		}
 
-		set_blocking( *data_sock, false );
+		set_blocking(*data_sock, false);
 
 		// net_connect is always blocking in lwIP 1.1.1
-		if( net_connect( *data_sock, (struct sockaddr*)&server_addr, sizeof(server_addr) ) < 0 )
+		if(net_connect(*data_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0)
 		{
 			net_close(*data_sock);
+			*data_sock = INVALID_SOCKET;
 			return -1;
 		}
 
 		res = ftp_get_response(env);
-		if( res != 150 && res != 125)
+		if(res != 150 && res != 125)
 		{
-			//Bad server response!
 			net_close(*data_sock);
+			*data_sock = INVALID_SOCKET;
 			return -1;
 		}
 
@@ -1117,6 +1138,7 @@ execute_open_retry:
 	{
 		*data_sock = env->data_socket;
 	}
+
 	return 0;
 }
 
