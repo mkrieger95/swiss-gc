@@ -358,81 +358,97 @@ static int ftp_getIP(char *buf, unsigned *ip, unsigned short *port)
 
 static int ftp_readline(SOCKET socket, char *buf, int len)
 {
-	int i = 0, out = 0;
-	int l;
+	int i = 0;
+	bool overflow = false;
+	char c;
 
-	do{
-		if( (l = SocketRecv(socket, &(buf[i]), 1, true)) > 0 )
+	if(len < 2)
+		return -EINVAL;
+
+	while(true)
+	{
+		if(SocketRecv(socket, &c, 1, true) <= 0)
 		{
-			if(buf[i] == '\n') out = 1;
-			i++;
+			buf[i] = 0;
+			return -1;
+		}
+
+		if(i < len - 1)
+		{
+			buf[i++] = c;
 		}
 		else
 		{
-			buf[i] = 0;
-//			NET_PRINTF(" ftp_readline() failed: '%s'\n", buf );
-
-			return -1;
+			// Keep draining oversized lines so the next read starts on a new FTP line.
+			overflow = true;
 		}
 
-	}while((i < (len-1))&&(out == 0));
+		if(c == '\n')
+			break;
+	}
 
 	buf[i] = 0;
-//	NET_PRINTF(" ftp_readline() ok: '%s'\n", buf );
+
+	if(overflow)
+		return -EMSGSIZE;
+
 	return i;
 }
 
+// FTP replies begin with an exact three-digit response code.
+static int ftp_parse_response_code(const char *buf, int len)
+{
+	if(len < 3 ||
+		buf[0] < '0' || buf[0] > '9' ||
+		buf[1] < '0' || buf[1] > '9' ||
+		buf[2] < '0' || buf[2] > '9')
+	{
+		return -1;
+	}
+
+	return (buf[0] - '0') * 100 +
+		   (buf[1] - '0') * 10 +
+		   (buf[2] - '0');
+}
 static int ftp_get_response(ftp_env* env)
 {
-	char buf[FTP_MAX_LINE], *b;
-	int i, res = 0;
-	int multiline = 0;
+	char buf[FTP_MAX_LINE];
+	char code[3];
+	int len;
+	int res;
 
-	i = ftp_readline(env->ctrl_socket, buf, FTP_MAX_LINE);
-	if(i < 0)
+	len = ftp_readline(env->ctrl_socket, buf, FTP_MAX_LINE);
+	if(len < 0)
 	{
-		NET_PRINTF("FTP response: NULL", 0 );
-		return i;
+		NET_PRINTF("FTP response: NULL", 0);
+		return len;
 	}
 
-	NET_PRINTF("FTP response: %s\n", buf );
+	NET_PRINTF("FTP response: %s\n", buf);
 
-	if(buf[3] == '-')
+	res = ftp_parse_response_code(buf, len);
+	if(res < 0)
 	{
-		buf[3] = 0;
-		multiline = strtoul(buf, &b, 0);
-		if(b != buf + 3)
+		NET_PRINTF("FTP response: bad response\n", 0);
+		return -1;
+	}
+
+	if(len > 3 && buf[3] == '-')
+	{
+		memcpy(code, buf, sizeof(code));
+
+		// Multiline replies end with the same response code followed by a space.
+		do
 		{
-			NET_PRINTF("FTP response: bad response\n", 0 );
-			return -1;
-		}
-	}
+			len = ftp_readline(env->ctrl_socket, buf, FTP_MAX_LINE);
+			if(len < 0)
+				return len;
 
-	if(multiline)
-	{
-		do {
-			i = ftp_readline(env->ctrl_socket, buf, FTP_MAX_LINE);
-			if(i < 0)
-			{
-				return i;
-			}
-
-			if(buf[3] == ' ')
-			{
-				buf[3] = 0;
-				res = strtoul(buf, &b, 0);
-			}
-		} while(res != multiline);
-	}
-	else
-	{
-		buf[3] = 0;
-		res = strtoul(buf, &b, 0);
-		if(b != buf + 3)
-		{
-			NET_PRINTF("FTP response: bad response\n", 0 );
-			return -1;
+			NET_PRINTF("FTP response: %s\n", buf);
 		}
+		while(len < 4 ||
+			memcmp(buf, code, sizeof(code)) != 0 ||
+			buf[3] != ' ');
 	}
 
 	return res;
@@ -1462,10 +1478,21 @@ loaddir_retry:
 			AddDirEntry(state, &ppLastItem, "..", 0, true);
 		}
 
-		while((res = ftp_readline(data_sock, buf, FTP_MAX_LINE)) > 0)
+		while(true)
 		{
+			res = ftp_readline(data_sock, buf, FTP_MAX_LINE);
+
+			if(res == -EMSGSIZE)
+			{
+				// Skip oversized entries after ftp_readline() has safely drained them.
+				continue;
+			}
+
+			if(res <= 0)
+				break;
+
 			// parse MLSD line
-			if (ftp_parse_mlsd_line(buf, filename, &filesize, &isdirectory))
+			if(ftp_parse_mlsd_line(buf, filename, &filesize, &isdirectory))
 			{
 				if((strcmp(filename, ".") == 0) || (strcmp(filename, "..") == 0))
 				{
@@ -1506,10 +1533,20 @@ loaddir_retry:
 		}
 
 		hasItems = false;
-
-		while((res = ftp_readline(data_sock, buf, FTP_MAX_LINE)) > 0)
+		while(true)
 		{
-//		NET_PRINTF( "ftp_readline() : %s\n", buf );
+			res = ftp_readline(data_sock, buf, FTP_MAX_LINE);
+
+			if(res == -EMSGSIZE)
+			{
+				// Skip oversized entries after ftp_readline() has safely drained them.
+				continue;
+			}
+
+			if(res <= 0)
+				break;
+
+//			NET_PRINTF( "ftp_readline() : %s\n", buf );
 
 			if(ftp_get_fname(buf, buf2) >= 0)
 			{
