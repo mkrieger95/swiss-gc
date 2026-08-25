@@ -1519,20 +1519,20 @@ static void _DrawTitleBar(uiDrawObj_t *evt) {
 	sprintf(fbTextBuffer, "commit: %s \267 revision: %s", GIT_COMMIT, GIT_REVISION);
 	drawString(getVideoMode()->fbWidth-36, 56, fbTextBuffer, 0.55f, ALIGN_RIGHT, defaultColor);
 	
-	s8 cputemp = SYS_GetCoreTemperature();
-	if(cputemp >= 0) {
-		sprintf(fbTextBuffer, "%i\260C", cputemp);
-		drawString(getVideoMode()->fbWidth-233, 39, fbTextBuffer, 0.55f, ALIGN_CENTER, defaultColor);
-	}
+	int clockShift = 0;
 	time_t curtime;
 	if(time(&curtime) != (time_t)-1) {
 		struct tm *timeinfo = localtime(&curtime);
 		char timeBuffer[9];
 		char glyph[2] = {'\0', '\0'};
+		// Remember each character's width so the clock doesn't shift as the numbers change.
 		static int digitWidths[10];
 		static int digitWidth;
 		static int colonWidth;
-		static int dateWidth;
+		static int spaceWidth;
+		static int meridiemWidths[2];
+		static int meridiemWidth;
+		static int meridiemMWidth;
 		int i;
 
 		if(!digitWidth) {
@@ -1544,27 +1544,67 @@ static void _DrawTitleBar(uiDrawObj_t *evt) {
 				}
 			}
 			colonWidth = GetTextSizeInPixels(":");
-			dateWidth = GetTextSizeInPixels("0000-00-00 \267 ");
+			spaceWidth = GetTextSizeInPixels(" ");
+
+			// Reserve the widest A/P slot plus M so AM/PM never changes the clock width.
+			glyph[0] = 'A';
+			meridiemWidths[0] = GetTextSizeInPixels(glyph);
+			meridiemWidth = meridiemWidths[0];
+			glyph[0] = 'P';
+			meridiemWidths[1] = GetTextSizeInPixels(glyph);
+			if(meridiemWidths[1] > meridiemWidth) {
+				meridiemWidth = meridiemWidths[1];
+			}
+			glyph[0] = 'M';
+			meridiemMWidth = GetTextSizeInPixels(glyph);
 		}
 
 		strftime(fbTextBuffer, sizeof(fbTextBuffer), "%Y-%m-%d \267 ", timeinfo);
-		strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", timeinfo);
+		strftime(timeBuffer, sizeof(timeBuffer), swissSettings.clockFormat == CLOCK_FORMAT_12H ? "%I:%M:%S" : "%H:%M:%S", timeinfo);
 
 		int timeWidth = digitWidth * 6 + colonWidth * 2;
-		int timeX = getVideoMode()->fbWidth-36-(int)(timeWidth * 0.55f);
-		int dateX = timeX-(int)(dateWidth * 0.55f);
+		int displayWidth = timeWidth;
+		if(swissSettings.clockFormat == CLOCK_FORMAT_12H) {
+			displayWidth += spaceWidth + meridiemWidth + meridiemMWidth;
+		}
+		// Keep the 12-hour suffix inside the title bar and preserve spacing from the temperature.
+		clockShift = (int)((displayWidth - timeWidth) * 0.55f);
+		int timeX = getVideoMode()->fbWidth-36-(int)(displayWidth * 0.55f);
 
-		drawString(dateX, 39, fbTextBuffer, 0.55f, ALIGN_LEFT, defaultColor);
+		drawString(timeX, 39, fbTextBuffer, 0.55f, ALIGN_RIGHT, defaultColor);
 
 		int offset = 0;
 		for(i = 0; timeBuffer[i]; i++) {
-			glyph[0] = timeBuffer[i];
 			int slotWidth = timeBuffer[i] == ':' ? colonWidth : digitWidth;
+			// Keep the tens-hour slot reserved so 9:59 -> 10:00 cannot shift the clock.
+			if(swissSettings.clockFormat == CLOCK_FORMAT_12H && i == 0 && timeBuffer[i] == '0') {
+				offset += slotWidth;
+				continue;
+			}
+
+			glyph[0] = timeBuffer[i];
 			int glyphWidth = timeBuffer[i] == ':' ? colonWidth : digitWidths[timeBuffer[i] - '0'];
 			int glyphOffset = (slotWidth - glyphWidth) / 2;
 			drawString(timeX + (int)((offset + glyphOffset) * 0.55f), 39, glyph, 0.55f, ALIGN_LEFT, defaultColor);
 			offset += slotWidth;
 		}
+
+		if(swissSettings.clockFormat == CLOCK_FORMAT_12H) {
+			int meridiemIndex = timeinfo->tm_hour < 12 ? 0 : 1;
+			int suffixOffset = timeWidth + spaceWidth;
+			glyph[0] = meridiemIndex ? 'P' : 'A';
+			int glyphOffset = (meridiemWidth - meridiemWidths[meridiemIndex]) / 2;
+			drawString(timeX + (int)((suffixOffset + glyphOffset) * 0.55f), 39, glyph, 0.55f, ALIGN_LEFT, defaultColor);
+			suffixOffset += meridiemWidth;
+			glyph[0] = 'M';
+			drawString(timeX + (int)(suffixOffset * 0.55f), 39, glyph, 0.55f, ALIGN_LEFT, defaultColor);
+		}
+	}
+
+	s8 cputemp = SYS_GetCoreTemperature();
+	if(cputemp >= 0) {
+		sprintf(fbTextBuffer, "%i\260C", cputemp);
+		drawString(getVideoMode()->fbWidth-233-clockShift, 39, fbTextBuffer, 0.55f, ALIGN_CENTER, defaultColor);
 	}
 }
 

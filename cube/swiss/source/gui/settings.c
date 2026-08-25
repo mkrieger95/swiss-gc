@@ -52,6 +52,7 @@ char *sramVideoStr[] = {"NTSC", "PAL", "PAL-M"};
 char *igrTypeStr[] = {"Disabled", "Reboot", "Apploader"};
 char *aveCompatStr[] = {"AVE N-DOL", "AVE P-DOL", "CMPV-DOL", "GCDigital", "GCVideo", "AVE-RVL"};
 char *fileBrowserTypeStr[] = {"Standard", "Fullwidth", "Carousel"};
+char *clockFormatStr[] = {"24-hour", "12-hour"};
 char *bs2BootStr[] = {"No", "Yes", "Sound 1", "Sound 2"};
 char *recentListLevelStr[] = {"Off", "Lazy", "On"};
 
@@ -89,6 +90,7 @@ static char *tooltips_interface[PAGE_INTERFACE_MAX+1] = {
 	[SET_FILEBROWSER_TYPE] = "File Browser Type:\n\nStandard - Displays files with minimal detail. (default)\n\nFullwidth - Displays files across the entire screen while hiding\nside information panels.\n\nCarousel - Suited towards Game/DOL only use, consider combining\nthis option with the \223File Management\224 setting turned off and\n\223Hide unknown file types\224 turned on for a better experience.",
 	[SET_APPSBROWSER_TYPE] = "File Browser Type for apps:\n\nApplicable to the /apps directory.",
 	[SET_GAMEBROWSER_TYPE] = "File Browser Type for games:\n\nApplicable to the /games directory.",
+	[SET_CLOCK_FORMAT] = "Clock Format:\n\n24-hour - Displays time from 00:00 to 23:59. (default)\n12-hour - Displays time with an AM/PM indicator.",
 	[SET_FILE_MGMT] = "File Management:\n\nWhen enabled, pressing Z on an entry in the file browser will\nallow it to be managed.",
 	[SET_RECENT_LIST] = "Recent List:\n\n(On) - Press Start while browsing to show a recent list.\n(Lazy) - Same as On but list updates only for new entries.\n(Off) - Recent list is completely disabled.\n\nThe lazy/off options exist to minimise SD card writes.",
 	[SET_HIDE_UNK] = "Hide unknown file types:\n\nDisabled - Show all files (default)\nEnabled - Hide unknown file types from being displayed\n\nKnown file types are:\n GameCube Executables (.bin/.dol/.elf)\n Disc images (.gcm/.iso/.nkit.iso/.tgc)\n MP3 Music (.mp3)\n WASP/WKF Flash files (.fzn)\n GameCube Memory Card files (.gci/.gcs/.sav)\n GameCube Executables with parameters appended (.dol+cli)",
@@ -286,6 +288,7 @@ uiDrawObj_t* settings_draw_page(int page_num, int option, ConfigEntry *gameConfi
 		drawSettingEntryString(page, &page_y_ofs, "File Browser Type:", fileBrowserTypeStr[swissSettings.fileBrowserType], option == SET_FILEBROWSER_TYPE, true);
 		drawSettingEntryString(page, &page_y_ofs, "File Browser Type for apps:", fileBrowserTypeStr[swissSettings.appsBrowserType], option == SET_APPSBROWSER_TYPE, true);
 		drawSettingEntryString(page, &page_y_ofs, "File Browser Type for games:", fileBrowserTypeStr[swissSettings.gameBrowserType], option == SET_GAMEBROWSER_TYPE, true);
+		drawSettingEntryString(page, &page_y_ofs, "Clock Format:", clockFormatStr[swissSettings.clockFormat], option == SET_CLOCK_FORMAT, true);
 		drawSettingEntryBoolean(page, &page_y_ofs, "File Management:", swissSettings.enableFileManagement, option == SET_FILE_MGMT, true);
 		drawSettingEntryString(page, &page_y_ofs, "Recent List:", recentListLevelStr[swissSettings.recentListLevel], option == SET_RECENT_LIST, true);
 		drawSettingEntryBoolean(page, &page_y_ofs, "Show hidden files:", swissSettings.showHiddenFiles, option == SET_SHOW_HIDDEN, true);
@@ -635,6 +638,10 @@ void settings_toggle(int page, int option, int direction, ConfigEntry *gameConfi
 			case SET_GAMEBROWSER_TYPE:
 				swissSettings.gameBrowserType += direction;
 				swissSettings.gameBrowserType = (swissSettings.gameBrowserType + BROWSER_MAX) % BROWSER_MAX;
+			break;
+			case SET_CLOCK_FORMAT:
+				swissSettings.clockFormat += direction;
+				swissSettings.clockFormat = (swissSettings.clockFormat + CLOCK_FORMAT_MAX) % CLOCK_FORMAT_MAX;
 			break;
 			case SET_FILE_MGMT:
 				swissSettings.enableFileManagement ^= 1;

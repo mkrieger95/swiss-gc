@@ -52,6 +52,7 @@ enum SETTINGS_INTERFACE {
 	SET_FILEBROWSER_TYPE,
 	SET_APPSBROWSER_TYPE,
 	SET_GAMEBROWSER_TYPE,
+	SET_CLOCK_FORMAT,
 	SET_FILE_MGMT,
 	SET_RECENT_LIST,
 	SET_SHOW_HIDDEN,
@@ -196,6 +197,7 @@ extern char *sramVideoStr[];
 extern char *igrTypeStr[];
 extern char *aveCompatStr[];
 extern char *fileBrowserTypeStr[];
+extern char *clockFormatStr[];
 extern char *bs2BootStr[];
 extern char *recentListLevelStr[];
 

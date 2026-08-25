@@ -179,6 +179,7 @@ int config_update_global(bool checkConfigDevice) {
 	fprintf(fp, "FileBrowserType=%s\r\n", fileBrowserTypeStr[swissSettings.fileBrowserType]);
 	fprintf(fp, "AppsBrowserType=%s\r\n", fileBrowserTypeStr[swissSettings.appsBrowserType]);
 	fprintf(fp, "GameBrowserType=%s\r\n", fileBrowserTypeStr[swissSettings.gameBrowserType]);
+	fprintf(fp, "ClockFormat=%s\r\n", clockFormatStr[swissSettings.clockFormat]);
 	fprintf(fp, "BS2Boot=%s\r\n", bs2BootStr[swissSettings.bs2Boot]);
 	fprintf(fp, "RT4KHostIP=%s\r\n", swissSettings.rt4kHostIp);
 	fprintf(fp, "RT4KPort=%hu\r\n", swissSettings.rt4kPort);
@@ -975,6 +976,14 @@ void config_parse_global(char *configData) {
 					for(int i = 0; i < BROWSER_MAX; i++) {
 						if(!strcmp(fileBrowserTypeStr[i], value)) {
 							swissSettings.gameBrowserType = i;
+							break;
+						}
+					}
+				}
+				else if(!strcmp("ClockFormat", name)) {
+					for(int i = 0; i < CLOCK_FORMAT_MAX; i++) {
+						if(!strcmp(clockFormatStr[i], value)) {
+							swissSettings.clockFormat = i;
 							break;
 						}
 					}

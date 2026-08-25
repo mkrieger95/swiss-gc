@@ -179,6 +179,7 @@ typedef struct {
 	int fileBrowserType;
 	int appsBrowserType;
 	int gameBrowserType;
+	int clockFormat;
 	int bs2Boot;
 	int showHiddenFiles;
 	int recentListLevel;	// off, lazy, on
@@ -225,6 +226,13 @@ enum fileBrowserTypes
 	BROWSER_FULLWIDTH,
 	BROWSER_CAROUSEL,
 	BROWSER_MAX
+};
+
+enum clockFormats
+{
+	CLOCK_FORMAT_24H=0,
+	CLOCK_FORMAT_12H,
+	CLOCK_FORMAT_MAX
 };
 
 #endif 
