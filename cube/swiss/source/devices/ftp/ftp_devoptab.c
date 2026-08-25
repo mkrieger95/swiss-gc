@@ -1531,7 +1531,7 @@ loaddir_retry:
 
 				ftp_get_substring(buf, buf2, 1);
 
-				if( buf2[0] == 'd' || buf2[0] == 'd' )
+				if( buf2[0] == 'd' || buf2[0] == 'D' )
 				{
 					isdirectory = true;
 				}
