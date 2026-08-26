@@ -520,7 +520,7 @@ void settings_toggle(int page, int option, int direction, ConfigEntry *gameConfi
 						curDevicePos = allDevices[curDevicePos+1] == NULL ? 0 : curDevicePos+1;
 					}
 					else {
-						curDevicePos = curDevicePos > 0 ? curDevicePos-1 : 0;
+						curDevicePos = curDevicePos > 0 ? curDevicePos-1 : MAX_DEVICES-1;
 					}
 					// Go to next writable device
 					while((allDevices[curDevicePos] == NULL) || !(allDevices[curDevicePos]->features & FEAT_CONFIG_DEVICE)) {
